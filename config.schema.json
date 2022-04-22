@@ -1,0 +1,22 @@
+{
+  "pluginAlias": "HomerunPetFeeder",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Homeren Pet Feeder"
+      },
+      "token": {
+        "title": "Token",
+        "type": "string",
+        "required": true,
+        "default": "Your token"
+      }
+    }
+  }
+}
