@@ -11,11 +11,17 @@
         "required": true,
         "default": "Homeren Pet Feeder"
       },
-      "token": {
-        "title": "Token",
+      "username": {
+        "title": "Username",
         "type": "string",
         "required": true,
-        "default": "Your token"
+        "default": "Your username"
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "required": true,
+        "default": "Your password"
       }
     }
   }

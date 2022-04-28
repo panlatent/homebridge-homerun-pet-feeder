@@ -1,9 +1,8 @@
 import {Logger, PlatformAccessory, Service} from 'homebridge';
 
 import {HomerunPetFeederPlatform} from './platform';
-
-import net from 'net';
-import {Buffer} from 'buffer';
+import Client from './client'
+import axios from 'axios';
 
 /**
  * Platform Accessory
@@ -11,21 +10,27 @@ import {Buffer} from 'buffer';
  * Each accessory may expose multiple services of different service types.
  */
 export class HomerunPetFeederAccessory {
+
     private service: Service;
+    private batteryService: Service;
     private log: Logger;
+    private client: Client;
 
     constructor(
         private readonly platform: HomerunPetFeederPlatform,
         private readonly accessory: PlatformAccessory,
     ) {
-
         this.log = platform.log
+        this.client = new Client(this.log)
+        this.auth().then(async () => {
+            this.client.start(await this.authorize())
+        })
 
         // set accessory information
         this.accessory.getService(this.platform.Service.AccessoryInformation)!
-            .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Default-Manufacturer')
-            .setCharacteristic(this.platform.Characteristic.Model, 'Default-Model')
-            .setCharacteristic(this.platform.Characteristic.SerialNumber, 'Default-Serial');
+            .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Homerun')
+            .setCharacteristic(this.platform.Characteristic.Model, 'C2C(130391398)')
+            .setCharacteristic(this.platform.Characteristic.SerialNumber, '130391398');
 
         // get the LightBulb service if it exists, otherwise create a new LightBulb service
         // you can create multiple services for each accessory
@@ -43,58 +48,85 @@ export class HomerunPetFeederAccessory {
             .onGet(this.handleSwitchGet.bind(this))
             .onSet(this.handleSwitchSet.bind(this));
 
-        /**
-         * Creating multiple services of the same type.
-         *
-         * To avoid "Cannot add a Service with the same UUID another Service without also defining a unique 'subtype' property." error,
-         * when creating multiple services of the same type, you need to use the following syntax to specify a name and subtype id:
-         * this.accessory.getService('NAME') || this.accessory.addService(this.platform.Service.Lightbulb, 'NAME', 'USER_DEFINED_SUBTYPE_ID');
-         *
-         * The USER_DEFINED_SUBTYPE must be unique to the platform accessory (if you platform exposes multiple accessories, each accessory
-         * can use the same sub type id.)
-         */
+        this.batteryService = this.accessory.getService(this.platform.Service.Battery) || this.accessory.addService(this.platform.Service.Battery)
+        this.batteryService.setCharacteristic(this.platform.Characteristic.Name, accessory.context.device.exampleDisplayName)
+        this.batteryService.getCharacteristic(this.platform.Characteristic.BatteryLevel)
+            .onGet(this.handleBatteryLevelGet.bind(this))
+        this.batteryService.getCharacteristic(this.platform.Characteristic.ChargingState)
+            .onGet(this.handleChargingStateGet.bind(this))
     }
 
     async handleSwitchGet() {
-        let client = new net.Socket();
-        client.connect({port: 23778, host: "47.97.92.77"}, async () => {
-            client.write(this.toStr(this.platform.config.token));
-            client.write(this.toStr("730000000e5b791a6300d50057abffff1f001f"));
-        });
+        return this.client.status !== 0
+    }
 
-        let currentValue = 0;
+    async handleSwitchSet(value) {
+        this.client.switchStatus()
+    }
 
-        client.on('data', (data: Buffer) => {
-            let hex = data.toString('hex')
-            const p = /83000000(\w{2})5b791a63(\w{4})0057abffff(\w{4})(\w{4})(\w{2,4})/
-            if (p.test(hex)) {
-                const r = hex.match(p)
-                if (r !== null && r[1] === '11') {
-                    client.end();
-                    if (r[5] === '00a2') {
-                        currentValue = 0;
-                    } else {
-                        currentValue = 1;
-                    }
-                }
+    async handleBatteryLevelGet() {
+        return this.client.batteryLevel
+    }
+
+    async handleChargingStateGet() {
+        const data = await this.get('https://api2.xlink.cn/v2/user/' + (await this.userId()).toString() + '/subscribe/devices')
+        for (const i in data) {
+            if (data[i].product_id === '160fa2af31428e00160fa2af31428e01') {
+                return data[i].is_online
             }
-        });
-
-        await new Promise(r => setTimeout(r, 2000));
-
-        return currentValue;
+        }
+        return 0;
     }
 
-    handleSwitchSet(value) {
-        let client = new net.Socket();
-        client.connect({port: 23778, host: "47.97.92.77"}, async () => {
-            client.write(this.toStr(this.platform.config.token));
-            client.write(this.toStr("730000000f5b791a63001b0057abffff12010215"));
-            client.end();
-        });
+    private authInfo: any
+
+    async accessToken() {
+        if (!this.authInfo) {
+            await this.auth()
+        }
+        return this.authInfo.access_token;
     }
 
-    toStr(hex): Buffer {
-        return Buffer.from(hex, "hex");
+    async authorize() {
+        if (!this.authInfo) {
+            await this.auth()
+        }
+        return this.authInfo.authorize;
+    }
+
+    async userId() {
+        if (!this.authInfo) {
+            await this.auth()
+        }
+        return this.authInfo.user_id;
+    }
+
+    private async auth() {
+        const res = await axios.post('https://api2.xlink.cn/v2/user_auth', {
+            corp_id: '100fa2af234d2400',
+            phone: this.platform.config.username,
+            password: this.platform.config.password
+        })
+
+        this.authInfo = res.data
+    }
+
+    async get(url: string) {
+        let res = await axios.get(url, {
+            headers: {
+                'Access-Token': await this.accessToken(),
+            }
+        })
+
+        if (res.status === 403) {
+            await this.auth()
+            res = await axios.get(url, {
+                headers: {
+                    'Access-Token': await this.accessToken(),
+                }
+            })
+        }
+
+        return res.data
     }
 }
