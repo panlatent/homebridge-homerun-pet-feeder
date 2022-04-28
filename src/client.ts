@@ -55,16 +55,8 @@ export default class Client {
         this._wait -= 1;
         switch (type) {
             case '11':
-                const status = msg.substr(4, 4) // 01a3 全开 02a4 伸展 03a5 收缩 00a2 关闭
-                if (status === '00a2') {
-                    this._status = 0;
-                } else if (status === '01a3') {
-                    this._status = 1;
-                } else if (status === '02a4') {
-                    this._status = 2;
-                } else if (status === '03a5') {
-                    this._status = 3;
-                }
+                const status = msg.substr(4, 2) // 00 关闭 01 全开 02 伸展 03 收缩
+                this._status = parseInt(status)
                 break;
             case '0f':
                 const value = parseInt(msg.substr(0, 2), 16)
