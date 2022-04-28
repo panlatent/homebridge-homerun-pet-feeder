@@ -58,7 +58,7 @@ export class HomerunPetFeederPlatform implements DynamicPlatformPlugin {
       {
         exampleUniqueId: 'ABCD',
         exampleDisplayName: 'Homerun Pet Feeder',
-      }
+      },
     ];
 
     // loop over the discovered devices and register each one if it has not already been registered
