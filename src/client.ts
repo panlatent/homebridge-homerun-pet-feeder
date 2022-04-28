@@ -6,14 +6,23 @@ import {Logger} from "homebridge";
 export default class Client {
     private conn: Socket;
     private authorizeCode: string = '';
+    private online = false;
+    private waitSwitchStatus = false;
     private _status: number = 0;
     private _batteryLevel: number = 0;
+    private _weight: number = 0;
 
-    constructor(private readonly log: Logger) {
+    constructor(private autologin: boolean, private readonly log: Logger) {
         this.conn = new Socket()
         this.conn.on('data', (data: Buffer) => { this.handle(data.toString('hex')) })
         this.conn.on('error', (err) => { this.debug(err.message) })
-        this.conn.on('close', () => { this.connect() })
+        this.conn.on('close', () => {
+            this.debug("Connection Closed")
+            if (this.autologin) {
+                this.debug("Reconnect");
+                this.connect()
+            }
+        })
     }
 
     start(authorizeCode: string) {
@@ -30,23 +39,55 @@ export default class Client {
         return this._batteryLevel
     }
 
+    get weight(): number {
+        return this._weight
+    }
+
     switchStatus() {
+        if (!this.online) {
+            if (this.conn.connecting) {
+                this.login()
+            } else {
+                this.connect()
+            }
+            this.waitSwitchStatus = true
+            return
+        }
         this.setState('12010215')
     }
 
     connect() {
         this.conn.connect({host: "47.97.92.77", port: 23778}, () => {
-            this.debug("Connnected")
-            this.conn.write(Client.toBinary('100000001a033962e3d20010' + Client.toHex(this.authorizeCode) + '00003c'));
+            this.debug("Connected")
+            this.login()
         });
+    }
+
+    login() {
+        this.conn.write(Client.toBinary('100000001a033962e3d20010' + Client.toHex(this.authorizeCode) + '00003c'));
+        if (this.waitSwitchStatus) {
+            this.waitSwitchStatus = false
+            this.setState('12010215')
+        }
     }
 
     private onLogin() {
         this.debug("Client Login")
-        setInterval(async () => {
-            await this.getState('1f')
-            await this.getState('11')
-        }, 5000)
+        this.online = true
+        this.update()
+    }
+
+    private async update() {
+        if (!this.online) {
+            if (this.autologin) {
+                setTimeout(() => this.login(), 30*1000)
+            }
+            return
+        }
+        await this.getState('1f') // => 11
+        await this.getState('11') // => 0f
+        await this.getState('10') // => 10
+        setTimeout(async () => await this.update(), 3000)
     }
 
     private _wait: number = 0;
@@ -59,8 +100,11 @@ export default class Client {
                 this._status = parseInt(status)
                 break;
             case '0f':
-                const value = parseInt(msg.substr(0, 2), 16)
-                this._batteryLevel = value > 100 ? 100 : value
+                const battery = parseInt(msg.substr(0, 2), 16)
+                this._batteryLevel = battery > 100 ? 100 : battery
+                break;
+            case '10':
+                this._weight = parseInt(msg.substr(0, 4), 16)
                 break;
         }
     }
@@ -77,7 +121,9 @@ export default class Client {
                 this.debug("Err: " + err)
             }
         })
-        await this.wait(3000)
+        if (!await this.wait(3000)) {
+            this._wait -= 1;
+        }
         this.debug("Wait End: " + this._wait)
     }
 
@@ -93,6 +139,10 @@ export default class Client {
         this.debug('HEX: ' + hex)
         if (hex === '18000000020000') {
             this.onLogin()
+            return
+        } else if (hex === 'e00000000103') {
+            this.debug('Logout')
+            this.online = false;
             return
         }
 

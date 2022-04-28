@@ -21,7 +21,7 @@ export class HomerunPetFeederAccessory {
         private readonly accessory: PlatformAccessory,
     ) {
         this.log = platform.log
-        this.client = new Client(this.log)
+        this.client = new Client(this.platform.config.autologin, this.log)
         this.auth().then(async () => {
             this.client.start(await this.authorize())
         })
